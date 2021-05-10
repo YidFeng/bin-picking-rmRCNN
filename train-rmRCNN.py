@@ -35,7 +35,7 @@ def argument_parser():
         argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", default='./dataset-r/small_for_test')
+    parser.add_argument("--data_dir", default='./dataset/small_for_test')
     parser.add_argument("--base_config_file", default="./configs/base_rotated_maskRCNN.yaml", metavar="FILE", help="path to config file")
     parser.add_argument("--user_config_file", default="./configs/user_rmRCNN.yaml", metavar="FILE", help="path to config file")
     parser.add_argument(
