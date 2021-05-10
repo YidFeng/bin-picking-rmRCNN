@@ -5,10 +5,10 @@ cd dataset
 python save_json_complete.py --dataset small_for_test --phase train --oc 0.8 --hr 0.5 --is_nohead True --is_hr True 
 ````
 args:
---oc: occlusion rate
---hr: head ratio (a threshold for the percentage of continuous exposure to the head side)
---is_nohead: whether to label the head
---is_hr: whether to control head ratio in the labeling 
+- oc: occlusion rate
+- hr: head ratio (a threshold for the percentage of continuous exposure to the head side)
+- is_nohead: whether to label the head
+- is_hr: whether to control head ratio in the labeling 
 
 ```bash
 python train-rmRCNN.py --user_config_file "./configs/user_rmRCNN.yaml" --data_dir './dataset/small_for_test'
