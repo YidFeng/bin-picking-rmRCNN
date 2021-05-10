@@ -22,7 +22,7 @@ REFERRENCE = 15000
 
 def argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", default="/home/dan/Desktop/bin-picking-rmRCNN/outfiles/01new/config.yaml", metavar="FILE", help="path to config file")
+    parser.add_argument("--config_file", default="./configs/test_config.yaml", metavar="FILE", help="path to config file")
     parser.add_argument("--model_path", default='./models/05r_0057999.pth', type=str)
     parser.add_argument("--output_dir", default='./test_output/05', type=str)
     parser.add_argument("--score_thresh_test", default=0.5, type=float) # 0.5, 0.7, 0.9
