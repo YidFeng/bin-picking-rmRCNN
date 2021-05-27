@@ -20,10 +20,10 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--phase', default='train')
     parser.add_argument('--dataset', default='01new')
-    parser.add_argument('--oc', type=float, default=0.58)
-    parser.add_argument('--hr', type=float, default=0.4)
-    parser.add_argument('--is_nohead', type=bool, default=True)
-    parser.add_argument('--is_hr', type=bool, default=True)
+    parser.add_argument('--oc', type=float, default=0.9)
+    parser.add_argument('--hr', type=float, default=0.5)
+    parser.add_argument('--is_hr', type=bool, default=False)
+    parser.add_argument('--analysis', type=bool, default=False)
     return parser.parse_args()
 
 def get_dicts(datadir, phase, meta_dir):
@@ -36,7 +36,7 @@ def get_dicts(datadir, phase, meta_dir):
         if 'left' in file:
             oc = args.oc
         else:
-            oc = args.oc - 0.8
+            oc = args.oc - 0.08
         record = {}
         ## occulusion ##
         meta_path = os.path.join(meta_dir, file.split('.')[0]+'.mat')
@@ -51,6 +51,7 @@ def get_dicts(datadir, phase, meta_dir):
         record['image_id'] = idx
         idx += 1
         a = cv2.imread(depth_path)
+
         height, width, _ = a.shape
         record['height'] = height
         record['width'] = width
@@ -73,63 +74,10 @@ def get_dicts(datadir, phase, meta_dir):
             size_label = np.sum(bit_mask)
 
 
-            if (y_idxs.size != 0) and (x_idxs.size != 0) and (occ_r > args.oc):
+            if (y_idxs.size != 0) and (x_idxs.size != 0) and (occ_r > oc):
                 object_points = np.array([[x,y] for x,y in zip(x_idxs,y_idxs)])
                 (c_x, c_y), (w, h), a = cv2.minAreaRect(object_points)
-                if h > w:
-                    angle = a + 90
-                    object_length = h
-                else:
-                    angle = a
-                    object_length = w
-                judge_range = int(0.2*object_length)
-                rot_mat = getRotationMatrix2D(center=(int(c_x), int(c_y)), angle=angle,
-                                              scale=1)
-                rotated_m = warpAffine(bit_mask.astype('uint8'), rot_mat, (int(width), int(height)))
-                y_ids, x_ids = np.where(rotated_m == 1)
-                start_x = np.min(x_ids)
-                end_x = np.max(x_ids)
-                left_mask = rotated_m[:,start_x:start_x+judge_range]
-                right_mask = rotated_m[:,end_x-judge_range+1:end_x+1]
-                label_wo_head = rotated_m.copy()
-                if args.is_nohead:
-                    if np.sum(left_mask) > np.sum(right_mask):
-                        head = start_x
-                        label_wo_head[:,start_x:start_x+judge_range] = 0
-                    else:
-                        head = end_x
-                        label_wo_head[:,end_x-judge_range+1:end_x+1] = 0
-                    rot_matr = getRotationMatrix2D(center=(int(c_x), int(c_y)), angle=-angle,
-                                                  scale=1)
-                    bit_mask = warpAffine(label_wo_head, rot_matr, (int(width), int(height)))
-                    y_idxs, x_idxs = np.where(bit_mask)
-                    object_points = np.array([[x,y] for x,y in zip(x_idxs,y_idxs)])
-                    (c_x, c_y), (w, h), a = cv2.minAreaRect(object_points)
-
-                # measure the ratio of pickable part
-                if args.is_hr:
-                    labels = label(rotated_m)
-                    for id in np.unique(labels):
-                        ys, xs = np.where(labels == id)
-                        ll = np.min(xs)
-                        rr = np.max(xs)
-                        if ll == head or rr == head:
-                            length_head = rr - ll
-                            head_ratio = length_head/object_length
-                            break
-
-                    if head_ratio > args.hr:
-                        rle = pycocotools.mask.encode(np.asarray(bit_mask, order="F"))
-                        rle['counts'] = rle['counts'].decode()
-                        obj = {
-                            "bbox": [int(c_x), int(c_y), int(w), int(h), -a],
-                            # "bbox_mode": BoxMode.XYXY_ABS,
-                            "segmentation": rle,
-                            "category_id": 0,
-                            "occulusion": occ_r
-                        }
-                        objs.append(obj)
-                else:
+                if not args.analysis:
                     rle = pycocotools.mask.encode(np.asarray(bit_mask, order="F"))
                     rle['counts'] = rle['counts'].decode()
                     obj = {
@@ -140,6 +88,93 @@ def get_dicts(datadir, phase, meta_dir):
                         "occulusion": occ_r
                     }
                     objs.append(obj)
+                else:
+                    if h > w:
+                        angle = a + 90
+                        object_length = h
+                        object_width = w
+                    else:
+                        angle = a
+                        object_length = w
+                        object_width = h
+                    aspect_ratio = object_length/object_width
+                    # print(aspect_ratio)
+                    if aspect_ratio > 3.0:
+                        judge_ratio = 0.12 * (7.0 / aspect_ratio)
+                        judge_range = int(judge_ratio*object_length)
+                        rot_mat = getRotationMatrix2D(center=(int(c_x), int(c_y)), angle=angle,
+                                                      scale=1)
+                        rotated_m = warpAffine(bit_mask.astype('uint8'), rot_mat, (int(width), int(height)))
+                        y_ids, x_ids = np.where(rotated_m == 1)
+                        start_x = np.min(x_ids)
+                        end_x = np.max(x_ids)
+                        mid_x = int(start_x + (end_x - start_x)/2) #
+                        mask_width = [np.sum(rotated_m[:, x_id] == 1) for x_id in x_ids] #
+                        max_width_idx = np.argmax(mask_width) #
+                        max_width_x = x_ids[max_width_idx]
+
+                        left_mask = rotated_m[:,start_x:start_x+judge_range]
+                        right_mask = rotated_m[:,end_x-judge_range+1:end_x+1]
+
+                        head_ratio = 1.0
+                        label_wo_head = rotated_m.copy()
+                        if max_width_x < mid_x:
+                            # if np.sum(left_mask) > np.sum(right_mask):
+                            head = start_x
+                            label_wo_head[:,start_x:start_x+judge_range] = 0
+                        else:
+                            head = end_x
+                            label_wo_head[:,end_x-judge_range+1:end_x+1] = 0
+
+                        # measure the ratio of pickable part
+                        if not args.is_hr:
+                            rot_matr = getRotationMatrix2D(center=(int(c_x), int(c_y)), angle=-angle,
+                                                           scale=1)
+                            bit_mask = warpAffine(label_wo_head, rot_matr, (int(width), int(height)))
+                            y_idxs, x_idxs = np.where(bit_mask)
+                            object_points = np.array([[x, y] for x, y in zip(x_idxs, y_idxs)])
+                            (c_x, c_y), (w, h), a = cv2.minAreaRect(object_points)
+                            rle = pycocotools.mask.encode(np.asarray(bit_mask, order="F"))
+                            rle['counts'] = rle['counts'].decode()
+                            obj = {
+                                "bbox": [int(c_x), int(c_y), int(w), int(h), -a],
+                                # "bbox_mode": BoxMode.XYXY_ABS,
+                                "segmentation": rle,
+                                "category_id": 0,
+                                "occulusion": occ_r
+                            }
+                            objs.append(obj)
+                        else:
+                            labels = label(rotated_m)
+                            # sub_lens = []
+                            for id in np.unique(labels):
+                                if id != 0:
+                                    ys, xs = np.where(labels == id)
+                                    ll = np.min(xs)
+                                    rr = np.max(xs)
+                                    # sub_lens.append(rr - ll)
+                                    if ll == head or rr == head:
+                                        length_head = rr - ll
+                                        head_ratio = length_head/object_length
+                                        if head_ratio > args.hr:
+                                            label_wo_head = np.logical_and((labels == id),label_wo_head).astype('uint8')
+                                            rot_matr = getRotationMatrix2D(center=(int(c_x), int(c_y)), angle=-angle,
+                                                                           scale=1)
+                                            bit_mask = warpAffine(label_wo_head, rot_matr, (int(width), int(height)))
+                                            y_idxs, x_idxs = np.where(bit_mask)
+                                            object_points = np.array([[x, y] for x, y in zip(x_idxs, y_idxs)])
+                                            (c_x, c_y), (w, h), a = cv2.minAreaRect(object_points)
+                                            rle = pycocotools.mask.encode(np.asarray(bit_mask, order="F"))
+                                            rle['counts'] = rle['counts'].decode()
+                                            obj = {
+                                                "bbox": [int(c_x), int(c_y), int(w), int(h), -a],
+                                                # "bbox_mode": BoxMode.XYXY_ABS,
+                                                "segmentation": rle,
+                                                "category_id": 0,
+                                                "occulusion": occ_r
+                                            }
+                                            objs.append(obj)
+                                        break
         record["annotations"] = objs
         dataset_dicts.append(record)
 
@@ -158,6 +193,5 @@ if __name__ == "__main__":
     with open(out_dir+'/'+ jname,'w') as f:
         json.dump(jdict, f)
         print("json file: %s accomplished!"%jname)
-
 
 
